@@ -1,0 +1,30 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data/chroma_db:/app/chroma_db
+      - /root/obsidian-vault:/vault:ro
+    env_file:
+      - ./backend/.env
+    environment:
+      - OBSIDIAN_VAULT_PATH=/vault
+      - EMBEDDING_DEVICE=cpu
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 1200M
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3001:3001"
+    depends_on:
+      - backend
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 300M
