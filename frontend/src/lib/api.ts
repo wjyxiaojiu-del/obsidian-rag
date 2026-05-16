@@ -131,3 +131,18 @@ export async function ingestWeb(url: string, title?: string): Promise<{ message:
   if (!res.ok) throw new Error(`Web ingest failed: ${res.status}`);
   return res.json();
 }
+
+export async function importWeChat(
+  talker: string,
+  talkerName: string,
+  distill: boolean = true
+): Promise<{ message: string; chunks: number; mode: string }> {
+  const params = new URLSearchParams({
+    talker,
+    talker_name: talkerName,
+    distill: String(distill),
+  });
+  const res = await fetch(`${API_BASE}/wechat/import?${params}`, { method: "POST" });
+  if (!res.ok) throw new Error(`WeChat import failed: ${res.status}`);
+  return res.json();
+}

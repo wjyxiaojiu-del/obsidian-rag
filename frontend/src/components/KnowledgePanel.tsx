@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { Upload, Globe, Trash2, FileText, Loader2, CheckCircle } from "lucide-react";
-import { getStats, ingestPDF, ingestWeb, type IndexStats } from "@/lib/api";
+import { Upload, Globe, Trash2, FileText, Loader2, CheckCircle, MessageSquare } from "lucide-react";
+import { getStats, ingestPDF, ingestWeb, importWeChat, type IndexStats } from "@/lib/api";
 
 export function KnowledgePanel() {
   const [stats, setStats] = useState<IndexStats | null>(null);
@@ -11,6 +11,9 @@ export function KnowledgePanel() {
   const [loading, setLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [wxTalker, setWxTalker] = useState("");
+  const [wxName, setWxName] = useState("");
+  const [wxDistill, setWxDistill] = useState(true);
 
   const loadStats = async () => {
     try {
@@ -54,6 +57,23 @@ export function KnowledgePanel() {
       showMsg("success", result.message);
       setWebUrl("");
       setWebTitle("");
+      await loadStats();
+    } catch (err) {
+      showMsg("error", `导入失败: ${err}`);
+    } finally {
+      setLoading(null);
+    }
+  };
+
+  const handleWeChatImport = async () => {
+    if (!wxTalker.trim()) return;
+
+    setLoading("wechat");
+    try {
+      const result = await importWeChat(wxTalker, wxName, wxDistill);
+      showMsg("success", result.message);
+      setWxTalker("");
+      setWxName("");
       await loadStats();
     } catch (err) {
       showMsg("error", `导入失败: ${err}`);
@@ -170,6 +190,55 @@ export function KnowledgePanel() {
           </div>
         </div>
 
+        {/* WeChat import */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5 mb-4">
+          <h3 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+            <MessageSquare className="w-4 h-4 text-green-500" />
+            导入微信聊天记录
+          </h3>
+          <p className="text-xs text-gray-500 mb-3">
+            通过 WeFlow HTTP API 导入微信聊天记录。需先在本机运行 WeFlow 并开启 HTTP 服务。
+            {wxDistill && " 开启蒸馏模式会用 LLM 提取关键信息，生成结构化笔记。"}
+          </p>
+          <div className="space-y-2">
+            <input
+              type="text"
+              value={wxTalker}
+              onChange={(e) => setWxTalker(e.target.value)}
+              placeholder="wxid_xxx（联系人/群的 wxid）"
+              className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            />
+            <input
+              type="text"
+              value={wxName}
+              onChange={(e) => setWxName(e.target.value)}
+              placeholder="备注名（可选，如：导师、课题组）"
+              className="w-full px-3 py-2 rounded-lg border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400"
+            />
+            <label className="flex items-center gap-2 text-sm text-gray-600">
+              <input
+                type="checkbox"
+                checked={wxDistill}
+                onChange={(e) => setWxDistill(e.target.checked)}
+                className="rounded"
+              />
+              蒸馏模式（推荐，用 LLM 提取关键信息）
+            </label>
+            <button
+              onClick={handleWeChatImport}
+              disabled={!wxTalker.trim() || loading === "wechat"}
+              className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-green-50 text-green-700 hover:bg-green-100 border border-green-200 text-sm transition-colors disabled:opacity-50"
+            >
+              {loading === "wechat" ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <MessageSquare className="w-4 h-4" />
+              )}
+              {wxDistill ? "蒸馏并导入" : "导入原始聊天"}
+            </button>
+          </div>
+        </div>
+
         {/* Source breakdown */}
         {stats && Object.keys(stats.source_breakdown).length > 0 && (
           <div className="bg-white rounded-xl border border-gray-200 p-5">
@@ -179,7 +248,7 @@ export function KnowledgePanel() {
                 <div key={type} className="flex items-center justify-between">
                   <span className="text-sm text-gray-600 flex items-center gap-2">
                     <FileText className="w-3.5 h-3.5" />
-                    {type === "obsidian" ? "Obsidian 笔记" : type === "pdf" ? "PDF 文献" : type === "web" ? "网页" : type}
+                    {type === "obsidian" ? "Obsidian 笔记" : type === "pdf" ? "PDF 文献" : type === "web" ? "网页" : type === "wechat" ? "微信聊天" : type}
                   </span>
                   <span className="text-sm font-medium text-gray-800">{count} 块</span>
                 </div>

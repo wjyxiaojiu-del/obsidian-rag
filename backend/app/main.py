@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.routers import chat, knowledge, sync
+from app.routers import chat, knowledge, sync, wechat
 
 app = FastAPI(
     title="Obsidian RAG",
@@ -21,6 +21,7 @@ app.add_middleware(
 app.include_router(chat.router)
 app.include_router(knowledge.router)
 app.include_router(sync.router)
+app.include_router(wechat.router)
 
 
 @app.get("/api/health")
