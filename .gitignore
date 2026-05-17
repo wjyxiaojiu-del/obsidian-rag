@@ -10,3 +10,6 @@ venv/
 node_modules/
 .next/
 .DS_Store
+distill_progress.json
+distill_html_progress.json
+distill_results.json

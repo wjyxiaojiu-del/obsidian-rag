@@ -3,10 +3,10 @@ from pathlib import Path
 
 
 class Settings(BaseSettings):
-    # LLM
-    deepseek_api_key: str = ""
-    deepseek_base_url: str = "https://api.deepseek.com"
-    deepseek_model: str = "deepseek-chat"
+    # LLM (Anthropic-compatible)
+    llm_api_key: str = ""
+    llm_base_url: str = "https://token-plan-sgp.xiaomimimo.com/anthropic"
+    llm_model: str = "mimo-v2.5-pro"
 
     # Embedding
     embedding_model: str = "BAAI/bge-small-zh-v1.5"
@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     chunk_overlap: int = 64
     top_k: int = 5
     rerank_top_k: int = 3
+
+    # WeFlow
+    weflow_url: str = "http://127.0.0.1:5031"
+    weflow_token: str = ""
 
     # Server
     host: str = "0.0.0.0"

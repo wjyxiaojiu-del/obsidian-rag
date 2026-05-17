@@ -1,7 +1,7 @@
-from openai import AsyncOpenAI
+from anthropic import AsyncAnthropic
 from app.config import settings
 
-_client: AsyncOpenAI | None = None
+_client: AsyncAnthropic | None = None
 
 REWRITE_PROMPT = """你是一个查询改写助手。根据用户的问题和对话历史，将问题改写为更适合知识库检索的形式。
 
@@ -24,12 +24,12 @@ REWRITE_PROMPT = """你是一个查询改写助手。根据用户的问题和对
 """
 
 
-def get_client() -> AsyncOpenAI:
+def get_client() -> AsyncAnthropic:
     global _client
     if _client is None:
-        _client = AsyncOpenAI(
-            api_key=settings.deepseek_api_key,
-            base_url=settings.deepseek_base_url,
+        _client = AsyncAnthropic(
+            api_key=settings.llm_api_key,
+            base_url=settings.llm_base_url,
         )
     return _client
 
@@ -44,7 +44,6 @@ async def rewrite_query(
 
     client = get_client()
 
-    # Build context from recent history (last 3 turns)
     recent = history[-6:] if len(history) > 6 else history
     history_text = "\n".join(
         f"{'用户' if m['role'] == 'user' else '助手'}: {m['content'][:200]}"
@@ -59,17 +58,17 @@ async def rewrite_query(
 请改写为更适合知识库检索的查询："""
 
     try:
-        response = await client.chat.completions.create(
-            model=settings.deepseek_model,
-            messages=[
-                {"role": "system", "content": REWRITE_PROMPT},
-                {"role": "user", "content": user_msg},
-            ],
+        response = await client.messages.create(
+            model=settings.llm_model,
+            system=REWRITE_PROMPT,
+            messages=[{"role": "user", "content": user_msg}],
             temperature=0.1,
             max_tokens=200,
-            stream=False,
         )
-        rewritten = response.choices[0].message.content.strip()
-        return rewritten if rewritten else question
+        rewritten = ""
+        for block in response.content:
+            if block.type == "text":
+                rewritten += block.text
+        return rewritten.strip() if rewritten.strip() else question
     except Exception:
         return question

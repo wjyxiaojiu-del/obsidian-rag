@@ -1,15 +1,15 @@
-"""WeChat chat history loader via WeFlow HTTP API.
+"""WeChat chat history loader.
 
-WeFlow (https://github.com/hicccc77/WeFlow) is an Electron app that
-reads local WeChat database and exposes HTTP API at localhost:5031.
-
-Key endpoints:
-  GET /api/v1/messages?talker=wxid_xxx&limit=100&chatlab=1
-  GET /api/v1/contacts (if available)
+Supports two sources:
+1. WeFlow HTTP API (localhost:5031) - real-time hook
+2. HTML export files - exported from WeFlow UI
 """
 
 import hashlib
+import json
+import re
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import httpx
@@ -258,3 +258,79 @@ async def load_wechat_chat(
     parsed = [parse_message(m) for m in messages]
     sessions = group_messages_by_session(parsed)
     return chunk_chat_sessions(sessions, talker_name or talker)
+
+
+# ─── HTML export parser ────────────────────────────────────────────
+
+def _strip_html_tags(html: str) -> str:
+    """Extract plain text from HTML message body.
+
+    Prioritizes message-text class content, strips the time div.
+    """
+    # Try to extract only message-text content (skip the time div)
+    text_match = re.search(r'<div class="message-text">(.*?)</div>', html, re.DOTALL)
+    if text_match:
+        text = text_match.group(1)
+    else:
+        text = html
+    # Remove img tags, keep alt text
+    text = re.sub(r'<img[^>]*alt="([^"]*)"[^>]*/?\s*>', r'\1', text)
+    # Remove all other tags
+    text = re.sub(r'<[^>]+>', '', text)
+    # Clean up whitespace
+    text = re.sub(r'\s+', ' ', text).strip()
+    # Decode common HTML entities
+    text = text.replace('&amp;', '&').replace('&lt;', '<').replace('&gt;', '>').replace('&quot;', '"')
+    return text
+
+
+def parse_html_messages(html_content: str) -> list[dict]:
+    """Parse messages from a WeFlow HTML export file.
+
+    Each message line is a JSON object like:
+    {"i":1,"t":1778985108,"s":0,"a":"<img .../>","b":"<div ...>text</div>","p":"..."}
+    """
+    messages = []
+    for line in html_content.splitlines():
+        line = line.strip().rstrip(",")
+        if not line.startswith('{"i":'):
+            continue
+        try:
+            obj = json.loads(line)
+            text = _strip_html_tags(obj.get("b", ""))
+            if not text:
+                continue
+            messages.append({
+                "sender": "me" if obj.get("s") == 1 else "other",
+                "content": text,
+                "time": obj.get("t", 0),
+                "type": 1,
+            })
+        except json.JSONDecodeError:
+            continue
+    return messages
+
+
+def load_html_export(export_dir: str) -> dict[str, list[dict]]:
+    """Load all HTML export files from a directory.
+
+    Returns dict mapping contact_name -> list of parsed messages.
+    """
+    export_path = Path(export_dir)
+    result = {}
+
+    for html_file in sorted(export_path.glob("*.html")):
+        # Extract contact name from filename: "私聊_焦玉涵.html" or "群聊_XXX.html"
+        name = html_file.stem  # e.g. "私聊_22电信焦玉涵"
+        # Remove prefix
+        for prefix in ("私聊_", "群聊_"):
+            if name.startswith(prefix):
+                name = name[len(prefix):]
+                break
+
+        content = html_file.read_text(encoding="utf-8")
+        messages = parse_html_messages(content)
+        if messages:
+            result[name] = messages
+
+    return result

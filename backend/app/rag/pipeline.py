@@ -1,5 +1,6 @@
+import asyncio
 import uuid
-from app.rag.retriever import retrieve, get_chroma_collection, rebuild_bm25_index
+from app.rag.retriever import retrieve, hybrid_search, get_chroma_collection, rebuild_bm25_index
 from app.rag.embedder import embed_texts
 from app.rag.generator import generate_answer, generate_answer_stream
 from app.rag.query_rewriter import rewrite_query
@@ -8,6 +9,10 @@ from app.models import ChatResponse, SourceRef
 
 # In-memory session store (lightweight, no DB needed)
 _sessions: dict[str, list[dict]] = {}
+
+# Simple query rewrite cache
+_rewrite_cache: dict[str, str] = {}
+_CACHE_MAX = 256
 
 
 def index_documents(documents: list[dict]) -> int:
@@ -87,24 +92,57 @@ def get_index_stats() -> dict:
     }
 
 
+def _get_rewrite_cache_key(question: str, history: list[dict] | None) -> str:
+    """Cache key based on question + last 2 history messages."""
+    import hashlib
+    h = question
+    if history:
+        recent = history[-2:]
+        h += "".join(m.get("content", "")[:50] for m in recent)
+    return hashlib.md5(h.encode()).hexdigest()
+
+
+async def _rewrite_with_cache(question: str, history: list[dict] | None) -> str:
+    """Rewrite query with caching."""
+    key = _get_rewrite_cache_key(question, history)
+    if key in _rewrite_cache:
+        return _rewrite_cache[key]
+    result = await rewrite_query(question, history)
+    if len(_rewrite_cache) >= _CACHE_MAX:
+        _rewrite_cache.pop(next(iter(_rewrite_cache)))
+    _rewrite_cache[key] = result
+    return result
+
+
 async def chat(question: str, session_id: str | None = None) -> ChatResponse:
-    """Full RAG chat pipeline: rewrite -> retrieve -> generate -> return."""
+    """Optimized RAG pipeline: rewrite+retrieve in parallel, skip compression for short history."""
     sid = session_id or str(uuid.uuid4())
-
-    # Rewrite query for better retrieval
     history = _sessions.get(sid)
-    search_query = await rewrite_query(question, history)
 
-    # Retrieve with rewritten query
-    sources = retrieve(search_query)
+    # Parallel: rewrite query + retrieve with original query simultaneously
+    rewrite_task = asyncio.create_task(_rewrite_with_cache(question, history))
 
-    # Compress history for answer generation
-    compressed = await compress_history(history) if history else None
+    # Start retrieval with original query immediately
+    original_sources = retrieve(question)
+    search_query = await rewrite_task
 
-    # Generate answer with compressed history
+    # If rewritten query differs, do a second retrieval and merge
+    if search_query != question:
+        rewritten_sources = retrieve(search_query)
+        seen = {s.doc_id for s in original_sources}
+        for src in rewritten_sources:
+            if src.doc_id not in seen:
+                original_sources.append(src)
+                seen.add(src.doc_id)
+    sources = original_sources[:settings.top_k]
+
+    # Only compress history when it's long (>4 messages)
+    compressed = None
+    if history and len(history) > 4:
+        compressed = await compress_history(history)
+
     answer = await generate_answer(question, sources, compressed)
 
-    # Store in session history
     if sid not in _sessions:
         _sessions[sid] = []
     _sessions[sid].append({"role": "user", "content": question})
@@ -118,24 +156,32 @@ async def chat(question: str, session_id: str | None = None) -> ChatResponse:
 
 
 async def chat_stream(question: str, session_id: str | None = None):
-    """Streaming RAG chat pipeline."""
+    """Optimized streaming RAG pipeline."""
     import json
 
     sid = session_id or str(uuid.uuid4())
-
-    # Rewrite query for better retrieval
     history = _sessions.get(sid)
-    search_query = await rewrite_query(question, history)
 
-    sources = retrieve(search_query)
+    # Parallel: rewrite + retrieve
+    rewrite_task = asyncio.create_task(_rewrite_with_cache(question, history))
+    original_sources = retrieve(question)
+    search_query = await rewrite_task
 
-    # Compress history for answer generation
-    compressed = await compress_history(history) if history else None
+    if search_query != question:
+        rewritten_sources = retrieve(search_query)
+        seen = {s.doc_id for s in original_sources}
+        for src in rewritten_sources:
+            if src.doc_id not in seen:
+                original_sources.append(src)
+                seen.add(src.doc_id)
+    sources = original_sources[:settings.top_k]
 
-    # First send rewritten query and sources as a special chunk
+    compressed = None
+    if history and len(history) > 4:
+        compressed = await compress_history(history)
+
     yield f"data: {json.dumps({'type': 'sources', 'sources': [s.model_dump() for s in sources], 'session_id': sid, 'search_query': search_query})}\n\n"
 
-    # Then stream the answer with compressed history
     full_answer = ""
     async for token in generate_answer_stream(question, sources, compressed):
         full_answer += token
@@ -143,7 +189,6 @@ async def chat_stream(question: str, session_id: str | None = None):
 
     yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
-    # Store in session
     if sid not in _sessions:
         _sessions[sid] = []
     _sessions[sid].append({"role": "user", "content": question})

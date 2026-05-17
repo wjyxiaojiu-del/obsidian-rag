@@ -6,7 +6,7 @@ Uses LLM to distill raw chat messages into structured knowledge notes.
 import json
 from datetime import datetime
 
-from openai import AsyncOpenAI
+from anthropic import AsyncAnthropic
 
 from app.config import settings
 from app.loaders.wechat import (
@@ -42,47 +42,46 @@ DISTILL_PROMPT = """你是一个知识蒸馏助手。请将以下微信聊天记
 ```"""
 
 
+def _get_client() -> AsyncAnthropic:
+    return AsyncAnthropic(
+        api_key=settings.llm_api_key,
+        base_url=settings.llm_base_url,
+    )
+
+
 async def distill_session(
     messages: list[dict],
     talker_name: str,
-    client: AsyncOpenAI | None = None,
+    client: AsyncAnthropic | None = None,
 ) -> dict | None:
-    """Distill a single chat session into a structured note.
-
-    Returns None if the session has no valuable content.
-    """
+    """Distill a single chat session into a structured note."""
     if not client:
-        client = AsyncOpenAI(
-            api_key=settings.deepseek_api_key,
-            base_url=settings.deepseek_base_url,
-        )
+        client = _get_client()
 
     formatted = format_session_for_distill(messages, talker_name)
     if len(formatted.strip()) < 30:
         return None
 
-    response = await client.chat.completions.create(
-        model=settings.deepseek_model,
-        messages=[
-            {"role": "system", "content": DISTILL_PROMPT},
-            {"role": "user", "content": formatted},
-        ],
+    response = await client.messages.create(
+        model=settings.llm_model,
+        system=DISTILL_PROMPT,
+        messages=[{"role": "user", "content": formatted}],
         temperature=0.2,
-        max_tokens=500,
+        max_tokens=4000,
     )
 
-    content = response.choices[0].message.content or ""
+    content = ""
+    for block in response.content:
+        if block.type == "text":
+            content += block.text
 
-    # Extract JSON from response
     try:
-        # Try to find JSON block
         if "```json" in content:
             json_str = content.split("```json")[1].split("```")[0].strip()
         elif "```" in content:
             json_str = content.split("```")[1].split("```")[0].strip()
         else:
             json_str = content.strip()
-
         result = json.loads(json_str)
         if result.get("skip"):
             return None
@@ -94,15 +93,15 @@ async def distill_session(
 async def distill_chat_history(
     talker: str,
     talker_name: str = "",
-    weflow_url: str = "http://127.0.0.1:5031",
+    weflow_url: str = "",
     weflow_token: str = "",
     max_messages: int = 2000,
 ) -> list[dict]:
-    """Full distillation pipeline: fetch messages -> group -> distill -> return docs.
-
-    Returns a list of document dicts ready for indexing.
-    """
-    client = WeFlowClient(weflow_url, weflow_token)
+    """Full distillation pipeline: fetch messages -> group -> distill -> return docs."""
+    client = WeFlowClient(
+        weflow_url or settings.weflow_url,
+        weflow_token or settings.weflow_token,
+    )
     messages = await client.get_all_messages(talker, max_messages)
 
     if not messages:
@@ -112,25 +111,20 @@ async def distill_chat_history(
     sessions = group_messages_by_session(parsed)
     name = talker_name or talker
 
-    llm_client = AsyncOpenAI(
-        api_key=settings.deepseek_api_key,
-        base_url=settings.deepseek_base_url,
-    )
+    llm_client = _get_client()
 
     documents = []
     for session_idx, session in enumerate(sessions):
-        if len(session) < 3:  # Skip very short sessions
+        if len(session) < 3:
             continue
 
         distilled = await distill_session(session, name, llm_client)
         if not distilled:
             continue
 
-        # Build document from distilled result
         start_time = _parse_timestamp(session[0].get("time", 0))
         end_time = _parse_timestamp(session[-1].get("time", 0))
 
-        # Build rich text for indexing
         note_text = f"""# {distilled['title']}
 
 {distilled['summary']}

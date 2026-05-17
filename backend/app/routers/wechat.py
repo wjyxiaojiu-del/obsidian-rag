@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException
 
+from app.config import settings
 from app.models import SourceType
 from app.loaders.wechat import load_wechat_chat, WeFlowClient
 from app.services.distill_service import distill_chat_history
@@ -10,12 +11,15 @@ router = APIRouter(prefix="/api/wechat", tags=["wechat"])
 
 @router.get("/contacts")
 async def get_contacts(
-    weflow_url: str = "http://127.0.0.1:5031",
+    weflow_url: str = "",
     weflow_token: str = "",
 ):
     """Get WeChat contact list from WeFlow."""
     try:
-        client = WeFlowClient(weflow_url, weflow_token)
+        client = WeFlowClient(
+            weflow_url or settings.weflow_url,
+            weflow_token or settings.weflow_token,
+        )
         contacts = await client.get_contacts()
         return {"contacts": contacts, "count": len(contacts)}
     except Exception as e:
@@ -28,7 +32,7 @@ async def import_chat(
     talker_name: str = "",
     distill: bool = False,
     max_messages: int = 2000,
-    weflow_url: str = "http://127.0.0.1:5031",
+    weflow_url: str = "",
     weflow_token: str = "",
 ):
     """Import WeChat chat history into knowledge base.
@@ -42,20 +46,22 @@ async def import_chat(
         weflow_token: WeFlow auth token
     """
     try:
+        _url = weflow_url or settings.weflow_url
+        _token = weflow_token or settings.weflow_token
         if distill:
             docs = await distill_chat_history(
                 talker=talker,
                 talker_name=talker_name,
-                weflow_url=weflow_url,
-                weflow_token=weflow_token,
+                weflow_url=_url,
+                weflow_token=_token,
                 max_messages=max_messages,
             )
         else:
             docs = await load_wechat_chat(
                 talker=talker,
                 talker_name=talker_name,
-                weflow_url=weflow_url,
-                weflow_token=weflow_token,
+                weflow_url=_url,
+                weflow_token=_token,
                 max_messages=max_messages,
             )
 
@@ -80,13 +86,15 @@ async def import_batch(
     talkers: list[dict],
     distill: bool = True,
     max_messages: int = 1000,
-    weflow_url: str = "http://127.0.0.1:5031",
+    weflow_url: str = "",
     weflow_token: str = "",
 ):
     """Batch import multiple chats.
 
     Body: [{"talker": "wxid_xxx", "name": "张三"}, ...]
     """
+    _url = weflow_url or settings.weflow_url
+    _token = weflow_token or settings.weflow_token
     results = []
     for item in talkers:
         talker = item.get("talker", "")
@@ -97,11 +105,11 @@ async def import_batch(
         try:
             if distill:
                 docs = await distill_chat_history(
-                    talker, name, weflow_url, weflow_token, max_messages
+                    talker, name, _url, _token, max_messages
                 )
             else:
                 docs = await load_wechat_chat(
-                    talker, name, weflow_url, weflow_token, max_messages
+                    talker, name, _url, _token, max_messages
                 )
 
             if docs:
