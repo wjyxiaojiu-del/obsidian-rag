@@ -6,7 +6,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential && \
     rm -rf /var/lib/apt/lists/*
 
-# Install CPU-only torch first to save memory
+# Install CPU-only torch first (smaller, no CUDA)
 RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 
 COPY requirements.txt .
@@ -14,8 +14,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Pre-download embedding model
-RUN python -c "from sentence_transformers import SentenceTransformer; SentenceTransformer('BAAI/bge-small-zh-v1.5')"
+# Don't pre-download model at build time - download on first request instead
+# This saves ~200MB and significant build time
 
 EXPOSE 8000
 

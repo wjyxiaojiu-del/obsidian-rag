@@ -22,8 +22,12 @@ if [ ! -f backend/.env ]; then
     exit 1
 fi
 
-# Build and start
-docker compose -f docker-compose.server.yml up -d --build
+# Login to GHCR (needs token)
+echo ">>> Pulling pre-built images from ghcr.io..."
+docker compose -f docker-compose.server.yml pull
+
+# Start services
+docker compose -f docker-compose.server.yml up -d
 
 echo "=== Deployment complete ==="
 echo "Frontend: http://$(hostname -I | awk '{print $1}'):3001"

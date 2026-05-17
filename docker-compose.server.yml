@@ -1,6 +1,6 @@
 services:
   backend:
-    build: ./backend
+    image: ghcr.io/wjyxiaojiu-del/obsidian-rag-backend:latest
     ports:
       - "8000:8000"
     volumes:
@@ -18,7 +18,7 @@ services:
           memory: 1200M
 
   frontend:
-    build: ./frontend
+    image: ghcr.io/wjyxiaojiu-del/obsidian-rag-frontend:latest
     ports:
       - "3001:3001"
     depends_on:
