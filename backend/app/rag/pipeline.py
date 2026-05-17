@@ -2,6 +2,7 @@ import uuid
 from app.rag.retriever import retrieve, get_chroma_collection, rebuild_bm25_index
 from app.rag.embedder import embed_texts
 from app.rag.generator import generate_answer, generate_answer_stream
+from app.rag.query_rewriter import rewrite_query
 from app.models import ChatResponse, SourceRef
 
 # In-memory session store (lightweight, no DB needed)
@@ -86,11 +87,15 @@ def get_index_stats() -> dict:
 
 
 async def chat(question: str, session_id: str | None = None) -> ChatResponse:
-    """Full RAG chat pipeline: retrieve -> generate -> return."""
+    """Full RAG chat pipeline: rewrite -> retrieve -> generate -> return."""
     sid = session_id or str(uuid.uuid4())
 
-    # Retrieve relevant sources
-    sources = retrieve(question)
+    # Rewrite query for better retrieval
+    history = _sessions.get(sid)
+    search_query = await rewrite_query(question, history)
+
+    # Retrieve with rewritten query
+    sources = retrieve(search_query)
 
     # Generate answer
     answer = await generate_answer(question, sources)
@@ -113,10 +118,15 @@ async def chat_stream(question: str, session_id: str | None = None):
     import json
 
     sid = session_id or str(uuid.uuid4())
-    sources = retrieve(question)
 
-    # First send sources as a special chunk
-    yield f"data: {json.dumps({'type': 'sources', 'sources': [s.model_dump() for s in sources], 'session_id': sid})}\n\n"
+    # Rewrite query for better retrieval
+    history = _sessions.get(sid)
+    search_query = await rewrite_query(question, history)
+
+    sources = retrieve(search_query)
+
+    # First send rewritten query and sources as a special chunk
+    yield f"data: {json.dumps({'type': 'sources', 'sources': [s.model_dump() for s in sources], 'session_id': sid, 'search_query': search_query})}\n\n"
 
     # Then stream the answer
     full_answer = ""
