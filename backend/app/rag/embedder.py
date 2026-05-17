@@ -1,26 +1,23 @@
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
 from app.config import settings
 
-_model: SentenceTransformer | None = None
+_model: TextEmbedding | None = None
 
 
-def get_embedder() -> SentenceTransformer:
+def get_embedder() -> TextEmbedding:
     global _model
     if _model is None:
-        _model = SentenceTransformer(
-            settings.embedding_model,
-            device=settings.embedding_device,
-        )
+        _model = TextEmbedding(model_name=settings.embedding_model)
     return _model
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
     model = get_embedder()
-    embeddings = model.encode(texts, normalize_embeddings=True)
-    return embeddings.tolist()
+    embeddings = list(model.embed(texts, normalize=True))
+    return [e.tolist() for e in embeddings]
 
 
 def embed_query(query: str) -> list[float]:
     model = get_embedder()
-    embedding = model.encode([query], normalize_embeddings=True)
+    embedding = list(model.embed([query], normalize=True))
     return embedding[0].tolist()
