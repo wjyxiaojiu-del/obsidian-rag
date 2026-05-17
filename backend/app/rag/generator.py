@@ -36,7 +36,11 @@ def build_context(sources: list[SourceRef]) -> str:
     return "\n\n---\n\n".join(parts)
 
 
-async def generate_answer(question: str, sources: list[SourceRef]) -> str:
+async def generate_answer(
+    question: str,
+    sources: list[SourceRef],
+    history: list[dict] | None = None,
+) -> str:
     """Generate answer using DeepSeek API with retrieved context."""
     client = get_client()
 
@@ -46,12 +50,14 @@ async def generate_answer(question: str, sources: list[SourceRef]) -> str:
 
 用户问题：{question}"""
 
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    if history:
+        messages.extend(history)
+    messages.append({"role": "user", "content": user_message})
+
     response = await client.chat.completions.create(
         model=settings.deepseek_model,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_message},
-        ],
+        messages=messages,
         temperature=0.3,
         max_tokens=2000,
         stream=True,
@@ -66,7 +72,11 @@ async def generate_answer(question: str, sources: list[SourceRef]) -> str:
     return answer
 
 
-async def generate_answer_stream(question: str, sources: list[SourceRef]):
+async def generate_answer_stream(
+    question: str,
+    sources: list[SourceRef],
+    history: list[dict] | None = None,
+):
     """Stream answer tokens."""
     client = get_client()
 
@@ -76,12 +86,14 @@ async def generate_answer_stream(question: str, sources: list[SourceRef]):
 
 用户问题：{question}"""
 
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+    if history:
+        messages.extend(history)
+    messages.append({"role": "user", "content": user_message})
+
     response = await client.chat.completions.create(
         model=settings.deepseek_model,
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_message},
-        ],
+        messages=messages,
         temperature=0.3,
         max_tokens=2000,
         stream=True,

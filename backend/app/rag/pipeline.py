@@ -3,6 +3,7 @@ from app.rag.retriever import retrieve, get_chroma_collection, rebuild_bm25_inde
 from app.rag.embedder import embed_texts
 from app.rag.generator import generate_answer, generate_answer_stream
 from app.rag.query_rewriter import rewrite_query
+from app.rag.context_compressor import compress_history
 from app.models import ChatResponse, SourceRef
 
 # In-memory session store (lightweight, no DB needed)
@@ -97,8 +98,11 @@ async def chat(question: str, session_id: str | None = None) -> ChatResponse:
     # Retrieve with rewritten query
     sources = retrieve(search_query)
 
-    # Generate answer
-    answer = await generate_answer(question, sources)
+    # Compress history for answer generation
+    compressed = await compress_history(history) if history else None
+
+    # Generate answer with compressed history
+    answer = await generate_answer(question, sources, compressed)
 
     # Store in session history
     if sid not in _sessions:
@@ -125,12 +129,15 @@ async def chat_stream(question: str, session_id: str | None = None):
 
     sources = retrieve(search_query)
 
+    # Compress history for answer generation
+    compressed = await compress_history(history) if history else None
+
     # First send rewritten query and sources as a special chunk
     yield f"data: {json.dumps({'type': 'sources', 'sources': [s.model_dump() for s in sources], 'session_id': sid, 'search_query': search_query})}\n\n"
 
-    # Then stream the answer
+    # Then stream the answer with compressed history
     full_answer = ""
-    async for token in generate_answer_stream(question, sources):
+    async for token in generate_answer_stream(question, sources, compressed):
         full_answer += token
         yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
 
