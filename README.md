@@ -1,3 +1,5 @@
+> **中文** | [English](README_en.md)
+
 # Obsidian RAG - 个人知识库问答系统
 
 基于 RAG (Retrieval-Augmented Generation) 的多源知识库问答系统，支持 Obsidian 笔记、PDF 文献和网页内容。
